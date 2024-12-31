@@ -3,6 +3,7 @@
 
 import argparse
 import sys
+import os
 import pandas as pd
 import torch
 from torch.utils.checkpoint import checkpoint
@@ -16,6 +17,9 @@ import numpy as np
 
 
 def parse_arguments():
+    """
+    Parse command-line arguments.
+    """
     parser = argparse.ArgumentParser(description="Training and Prediction for Image2LaTeX")
 
     # Common arguments
@@ -24,7 +28,7 @@ def parse_arguments():
     parser.add_argument("--data-path", type=str, help="Path to the dataset", default=None)
     parser.add_argument("--img-path", type=str, help="Path to the image folder", default=None)
     parser.add_argument(
-        "--predict-img-path", type=str, help="Path to the image for prediction", default=None
+        "--predict-img-path", type=str, help="Path to the image(s) for prediction (comma-separated)", default=None
     )
     parser.add_argument(
         "--dataset", type=str, help="Choose dataset [100k, 170k]", default="100k"
@@ -64,7 +68,7 @@ def parse_arguments():
 
     args = parser.parse_args()
 
-    return args
+    return args, parser
 
 
 def set_defaults_for_prediction(args, parser):
@@ -95,11 +99,13 @@ def set_defaults_for_prediction(args, parser):
 
 
 def main():
-    args = parse_arguments()
+    # Parse arguments
+    args, parser = parse_arguments()
 
     # Set defaults if prediction mode is enabled
-    set_defaults_for_prediction(args, sys.argv)
+    set_defaults_for_prediction(args, parser)
 
+    # Set seeds for reproducibility
     torch.manual_seed(args.random_state)
     np.random.seed(args.random_state)
 
@@ -133,7 +139,14 @@ def main():
         n_sample=args.test_sample,
         dataset=args.dataset,
     )
-    predict_set = LatexPredictDataset(predict_img_path=args.predict_img_path)
+    
+    # Handle multiple image paths for prediction
+    if args.predict_img_path:
+        predict_img_paths = [path.strip() for path in args.predict_img_path.split(',')]
+    else:
+        predict_img_paths = []
+        
+    predict_set = LatexPredictDataset(predict_img_path=predict_img_paths)
 
     # Initialize DataModule
     dm = DataModule(
@@ -178,7 +191,7 @@ def main():
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval="step")
 
     # Calculate gradient accumulation steps
-    if args.accumulate_batch > 0:
+    if args.accumulate_batch > 0 and args.batch_size > 0:
         accumulate_grad_batches = args.accumulate_batch // args.batch_size
     else:
         accumulate_grad_batches = 1
@@ -216,9 +229,24 @@ def main():
     if args.predict:
         print("=" * 10 + " [Predict] " + "=" * 10)
         predictions = trainer.predict(datamodule=dm, model=model, ckpt_path=args.ckpt_path)
-        # Handle predictions as needed, e.g., print or save them
-        for prediction in predictions:
-            print(prediction)
+        
+        # Ensure that predict_img_paths are available
+        if not predict_img_paths:
+            print("No images provided for prediction.")
+            return
+        
+        # Iterate over image paths and predictions
+        for img_path, prediction in zip(predict_img_paths, predictions):
+            # Extract base name without extension
+            base_name = os.path.splitext(os.path.basename(img_path))[0]
+            # Define the output .txt file path
+            txt_path = os.path.join(os.path.dirname(img_path), f"{base_name}.txt")
+            try:
+                with open(txt_path, 'w') as f:
+                    f.write(prediction)
+                print(f"Prediction saved to {txt_path}")
+            except Exception as e:
+                print(f"Failed to write prediction for {img_path}: {e}")
 
 
 if __name__ == "__main__":
