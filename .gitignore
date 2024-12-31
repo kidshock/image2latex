@@ -140,3 +140,5 @@ im2latex100k/
 tb_logs/
 wandb/
 lightning_logs/
+
+.codegpt
