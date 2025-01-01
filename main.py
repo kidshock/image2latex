@@ -14,6 +14,7 @@ from data.datamodule import DataModule
 from image2latex.text import Text100k, Text170k
 import pytorch_lightning as pl
 import numpy as np
+import wandb  # Ensure wandb is imported if used
 
 
 def parse_arguments():
@@ -146,7 +147,7 @@ def main():
     else:
         predict_img_paths = []
         
-    predict_set = LatexPredictDataset(predict_img_path=predict_img_paths)
+    predict_set = LatexPredictDataset(predict_img_paths=predict_img_paths)
 
     # Initialize DataModule
     dm = DataModule(
